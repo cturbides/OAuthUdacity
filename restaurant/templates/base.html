@@ -19,6 +19,13 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarText">
+                <div class="nav-item">
+                    {% if login %}
+                    <a class="nav-link text-white fs-5" href="{{ url_for('logout') }}">Logout</a>
+                    {% else %}
+                    <a class="nav-link text-white fs-5" href="{{ url_for('login') }}">Login</a>
+                    {% endif %}
+                </div>
                 <form class="d-flex" method='POST' action="{{url_for('newRestaurant')}}">
                     <div class="mb-3 input-group mt-3">
                         <input required class="form-control me-2" name="restaurant_name" placeholder="Restaurant name">
