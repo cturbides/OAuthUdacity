@@ -1,11 +1,11 @@
 from flask import render_template, request, redirect, url_for, jsonify, flash
 from flask import session as login_session
-import google.oauth2.credentials
+import requests
 import google_auth_oauthlib.flow
 import cachelib
 from restaurant import app
 from restaurant.sql import cursor
-from restaurant.sql.models import Restaurant, Menu
+from restaurant.sql.models import Restaurant, Menu, User
 
 "Global variables for OAuth"
 cache = cachelib.SimpleCache()
@@ -27,7 +27,7 @@ def login_required(func):
 @app.route('/restaurants/error/<string:error>')
 def errorRestaurant(error):
     login = 'credentials' in login_session
-    return render_template('error.html', error=error, login=login)
+    return render_template('error.html', error=error, login=login, user=login_session.get('user', None))
 
 @app.route('/')
 @app.route('/restaurants')
@@ -37,7 +37,7 @@ def showRestaurant():
     except:
         restaurants = None
     login = 'credentials' in login_session
-    return render_template('home.html', restaurants=restaurants, login=login)
+    return render_template('home.html', restaurants=restaurants, login=login, user=login_session.get('user', None))
     
 
 @app.route('/restaurant/new', methods=['POST', 'GET'])
@@ -58,7 +58,7 @@ def newRestaurant():
             return redirect(url_for('showRestaurant'))
         except:
             return redirect(url_for('errorRestaurant', error='Creating restaurant'))
-    return render_template('restaurantForm.html', new=True, login=True)
+    return render_template('restaurantForm.html', new=True, login=True, user=login_session.get('user', None))
 
 @app.route('/restaurant/<int:restaurant_id>/edit', methods=['POST', 'GET'])
 @login_required
@@ -81,7 +81,7 @@ def editRestaurant(restaurant_id):
             return redirect(url_for('errorRestaurant', error='Editing restaurant'))
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
-        return render_template('restaurantForm.html', edit=True, restaurant=restaurant, login=True)
+        return render_template('restaurantForm.html', edit=True, restaurant=restaurant, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving restaurant'))
     
@@ -106,7 +106,7 @@ def deleteRestaurant(restaurant_id):
             return redirect(url_for('errorRestaurant', error='Deleting restaurant'))
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
-        return render_template('restaurantForm.html', delete=True, restaurant=restaurant, login=True)
+        return render_template('restaurantForm.html', delete=True, restaurant=restaurant, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving restaurant'))
     
@@ -118,7 +118,7 @@ def showMenu(restaurant_id):
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
         menus = cursor.query(Menu).filter_by(restaurant_id=restaurant_id).all()    
-        return render_template('menus.html', restaurant=restaurant, menus=menus, login=True)
+        return render_template('menus.html', restaurant=restaurant, menus=menus, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving menus or restaurant'))
 
@@ -128,12 +128,15 @@ def newMenuItem(restaurant_id):
     if request.method == 'POST':
         try:
             restaurant = cursor.query(Restaurant).get(restaurant_id)
+            user = cursor.query(User).get(login_session['user_id'])
             
             menu_name = request.form['menu_name']
             menu_price = float(request.form['menu_price'])
             menu_description = request.form['menu_description']
             
-            new_menu = Menu(name=menu_name, price=menu_price, description=menu_description, restaurant_id=restaurant_id, restaurant=restaurant)
+            new_menu = Menu(name=menu_name, price=menu_price, description=menu_description, 
+                            restaurant_id=restaurant_id, restaurant=restaurant,
+                            user_id=user.user_id, user=user)
             
             cursor.add(new_menu)
             cursor.commit()
@@ -144,7 +147,7 @@ def newMenuItem(restaurant_id):
             return redirect(url_for('errorRestaurant'))
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
-        return render_template('menusForm.html', new=True, restaurant=restaurant, login=True)
+        return render_template('menusForm.html', new=True, restaurant=restaurant, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving restaurant'))
 
@@ -154,6 +157,11 @@ def editMenuItem(restaurant_id, menu_id):
     if request.method == 'POST':
         try:
             menu = cursor.query(Menu).get(menu_id)
+            user = cursor.query(User).get(login_session['user_id'])
+            
+            if user.user_id != menu.user_id:
+                flash("You can't edit this menu", 'warning')
+                return redirect(url_for('showMenu', restaurant_id=restaurant_id))
             
             menu.name = request.form['menu_name']
             menu.price = float(request.form['menu_price'])
@@ -168,7 +176,7 @@ def editMenuItem(restaurant_id, menu_id):
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
         menu = cursor.query(Menu).get(menu_id)
-        return render_template('menusForm.html', edit=True, restaurant=restaurant, menu=menu, login=True)
+        return render_template('menusForm.html', edit=True, restaurant=restaurant, menu=menu, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving menu or restaurant'))
         
@@ -181,6 +189,11 @@ def deleteMenuItem(restaurant_id, menu_id):
         try:
             restaurant = cursor.query(Restaurant).get(restaurant_id)
             menu = cursor.query(Menu).get(menu_id)
+            user = cursor.query(User).get(login_session['user_id'])
+            
+            if user.user_id != menu.user_id:
+                flash("You can't delete this menu", 'warning')
+                return redirect(url_for('showMenu', restaurant_id=restaurant_id))
             
             cursor.delete(menu)
             cursor.commit()
@@ -192,7 +205,7 @@ def deleteMenuItem(restaurant_id, menu_id):
     try:
         restaurant = cursor.query(Restaurant).get(restaurant_id)
         menu = cursor.query(Menu).get(menu_id)
-        return render_template('menusForm.html', delete=True, restaurant=restaurant, menu=menu, login=True)
+        return render_template('menusForm.html', delete=True, restaurant=restaurant, menu=menu, login=True, user=login_session.get('user', None))
     except:
         return redirect(url_for('errorRestaurant', error='Retrieving menu or restaurant'))
     
@@ -249,13 +262,41 @@ def oauth2callback():
             'client_secret': credentials.client_secret,
             'scopes': credentials.scopes
     }
-    flash('Sucessfully Authentication', 'success')
+    
+    http_request = requests.get('https://www.googleapis.com/oauth2/v2/userinfo', 
+                                params={'access_token':credentials.token})
+    response = http_request.json()
+    
+    email = response['email']
+    username = response['name']
+    
+    try:
+        user = cursor.query(User).filter_by(email=email).one()
+
+        login_session['user'] = user.name
+        login_session['user_id'] = user.user_id
+        
+    except:
+        user = User(email=email, name=username)
+        
+        cursor.add(user)
+        cursor.commit()
+        
+        user = cursor.query(User).filter_by(email=email).one()
+    
+        login_session['user'] = user.name
+        login_session['user_id'] = user.user_id
+    
+    flash('Sucessfully Authentication {}'.format(login_session['user']), 'success')
     return redirect(url_for('showRestaurant'))
 
 @app.route('/restaurants/logout')
 def logout():
     if 'credentials' in login_session:
         del(login_session['credentials'])
+        del(login_session['user'])
+        del(login_session['user_id'])
         cache.delete('state')
+
         flash('Logout succesfully', 'warning')
     return redirect(url_for('showRestaurant'))

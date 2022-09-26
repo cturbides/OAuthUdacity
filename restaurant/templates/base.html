@@ -19,6 +19,11 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarText">
+                {% if login %}
+                <div class="nav-item">
+                    <p class="text-white fs-4">{{ user }}</p>
+                </div>
+                {% endif %}
                 <div class="nav-item">
                     {% if login %}
                     <a class="nav-link text-white fs-5" href="{{ url_for('logout') }}">Logout</a>
