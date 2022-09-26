@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+
+{% if new %}
+<h1 class="display-2 text-white">New restaurant</h1>
+<form method='POST' action="{{url_for('newRestaurant')}}">
+    <div class="input-group mb-3">
+        <span class="input-group-text" for="restaurant_name">Restaurant Name</span>
+        <input class="form-control" required type="text" name="restaurant_name">
+    </div>
+    <button type='submit' class="btn btn-primary">Submit</button>
+</form>
+
+{% elif edit %}
+    {% if restaurant %}
+    <h1 class="display-2 text-white">Edit restaurant</h1>
+    <h4 class="display-4 text-white">{{ restaurant.name }}</h4>
+    <form method='POST' action="{{url_for('editRestaurant', restaurant_id=restaurant.restaurant_id)}}">
+        <div class="input-group mb-3">
+            <span class="input-group-text" for="restaurant_name">Restaurant Name</span>
+            <input class="form-control" required type="text" name="restaurant_name">
+        </div>
+        <button type='submit' class="btn btn-primary">Submit</button>
+    </form>
+    {% endif %}
+
+{% elif delete %}
+    <h1 class="display-2 text-white">Delete restaurant</h1>
+    <p class="text-white fs-4">Do you want to delete {{ restaurant.name }}?</p>
+    <form method='POST' action="{{url_for('deleteRestaurant', restaurant_id=restaurant.restaurant_id)}}">
+        <button type='submit' class="btn btn-danger">Submit</button>
+    </form>
+{% endif %}
+
+{% endblock %}
