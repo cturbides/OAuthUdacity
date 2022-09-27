@@ -18,14 +18,12 @@ class User(Base):
     __tablename__ = 'user'
     user_id = Column(Integer, primary_key=True)
     name = Column(String(30), nullable=False)
-    email = Column(String(50), nullable=False)
     
     @property
     def serialize(self):
         return {
             'user_id': self.user_id,
-            'name': self.name,
-            'email': self.email
+            'name': self.name
         }
         
 class Menu(Base):

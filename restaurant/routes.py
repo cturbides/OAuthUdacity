@@ -1,4 +1,5 @@
 from flask import render_template, request, redirect, url_for, jsonify, flash
+import json
 from flask import session as login_session
 import requests
 import google_auth_oauthlib.flow
@@ -9,7 +10,7 @@ from restaurant.sql.models import Restaurant, Menu, User
 
 "Global variables for OAuth"
 cache = cachelib.SimpleCache()
-
+fb_counter = 0
 flow = google_auth_oauthlib.flow.Flow.from_client_secrets_file(
     client_secrets_file='client_secret.json',
     scopes=['https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/userinfo.email', 'openid'],
@@ -18,15 +19,30 @@ flow = google_auth_oauthlib.flow.Flow.from_client_secrets_file(
 
 def login_required(func):
     def is_logged(*args, **kwargs):
-        if 'credentials' not in login_session:
-            return redirect(url_for('login'))
+        if 'user' not in login_session:
+            return redirect(url_for('login_template'))
         return func(*args, **kwargs)
     is_logged.__name__ = func.__name__
     return is_logged
 
+def have_already_sign_in(func):
+    def wrapper(*args, **kwargs):
+        global fb_counter
+        if login_session.get('user_type', None) == 'F' and not fb_counter:
+            fb_counter += 1
+            return func(*args, **kwargs)
+        
+        elif 'user' in login_session:
+            flash('You have already sign in', 'danger')
+            return redirect(url_for('showRestaurant'))
+        return func(*args, **kwargs)
+    wrapper.__name__ = func.__name__
+    return wrapper
+    
+"Routes"
 @app.route('/restaurants/error/<string:error>')
 def errorRestaurant(error):
-    login = 'credentials' in login_session
+    login = 'user' in login_session
     return render_template('error.html', error=error, login=login, user=login_session.get('user', None))
 
 @app.route('/')
@@ -36,7 +52,7 @@ def showRestaurant():
         restaurants = cursor.query(Restaurant).all()
     except:
         restaurants = None
-    login = 'credentials' in login_session
+    login = 'user' in login_session
     return render_template('home.html', restaurants=restaurants, login=login, user=login_session.get('user', None))
     
 
@@ -235,8 +251,28 @@ def restaurant_menu_JSON(restaurant_id, menu_id):
     except:
         return jsonify(Error={'Message':'Restaurant or Menu not found'})
 
-@app.route('/restaurants/login')
-def login():  
+
+"Login"
+def return_user_if_exist(name):
+    try:
+        return cursor.query(User).filter_by(name=name).one()
+    except:
+        return None
+
+def save_user_data(user: User, login_type: str) -> bool:
+    login_session['user'] = user.name
+    login_session['user_id'] = user.user_id
+    login_session['user_type'] = login_type
+    return True
+
+@app.route('/restaurants/login/selection')
+@have_already_sign_in
+def login_template():
+    return render_template('login.html')
+
+@app.route('/restaurants/login/google')
+@have_already_sign_in
+def login_google():  
     auth_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true'
@@ -247,10 +283,15 @@ def login():
 
 @app.route('/restaurants/oauth2callback')
 def oauth2callback():
+    if not cache.get('state'):
+        flash("You can't be here", 'danger')
+        return redirect(url_for('showRestaurant'))
+    
     login_session['state'] = cache.get('state')
     flow.fetch_token(authorization_response=request.url)
+    
     if not login_session['state'] == request.args['state']:
-        flash('Unsucessfully Authentication', 'danger')
+        flash('Unsuccessfully Authentication', 'danger')
         return redirect(url_for('showRestaurant'))
     
     credentials = flow.credentials
@@ -265,38 +306,65 @@ def oauth2callback():
     
     http_request = requests.get('https://www.googleapis.com/oauth2/v2/userinfo', 
                                 params={'access_token':credentials.token})
+    
     response = http_request.json()
+    user_name = response['name']    
     
-    email = response['email']
-    username = response['name']
+    user = return_user_if_exist(user_name)
     
-    try:
-        user = cursor.query(User).filter_by(email=email).one()
-
-        login_session['user'] = user.name
-        login_session['user_id'] = user.user_id
-        
-    except:
-        user = User(email=email, name=username)
-        
+    if not user:
+        user = User(name=user_name)
         cursor.add(user)
         cursor.commit()
         
-        user = cursor.query(User).filter_by(email=email).one()
+        user = cursor.query(User).filter_by(name=user_name).one() #Retrieving user_id
     
-        login_session['user'] = user.name
-        login_session['user_id'] = user.user_id
+    save_user_data(user, 'G')
     
-    flash('Sucessfully Authentication {}'.format(login_session['user']), 'success')
+    flash('Successfully Authentication {}'.format(login_session['user']), 'success')
     return redirect(url_for('showRestaurant'))
 
+@app.route('/restaurants/login/fb', methods=['POST', 'GET'])
+@have_already_sign_in
+def facebook_login():
+    if request.method == 'POST':
+        json_data = request.json
+        user_name = json_data['user_name']
+        if not user_name:
+            return json.dumps({'success':True, 'new_link':'http://localhost:8080/restaurants/login/fb'}), 200, {'ContentType':'application/json'}
+        
+        user = return_user_if_exist(user_name)
+        if not user:
+            user = User(name=user_name)
+            cursor.add(user)
+            cursor.commit()
+            
+            user = cursor.query(User).filter_by(name=user_name).one()
+        
+        save_user_data(user, 'F')
+        
+        flash('Successfully Authentication {}'.format(login_session['user']), 'success')        
+        return json.dumps({'success':True, 'new_link':'http://localhost:8080/restaurants/login/fb'}), 200, {'ContentType':'application/json'}
+
+    if 'user' in login_session:
+        global fb_counter
+        fb_counter += 1
+        return redirect(url_for('showRestaurant'))
+    else:
+        flash('Error trying to log into your FB account', 'warning')
+        return redirect(url_for('showRestaurant'))
+    
 @app.route('/restaurants/logout')
 def logout():
+    global fb_counter
     if 'credentials' in login_session:
+        cache.delete('state')
         del(login_session['credentials'])
+        
+    if 'user' in login_session:
         del(login_session['user'])
         del(login_session['user_id'])
-        cache.delete('state')
-
-        flash('Logout succesfully', 'warning')
+        del(login_session['user_type'])
+        fb_counter = 0
+        flash('Logout successfully', 'warning')
     return redirect(url_for('showRestaurant'))
